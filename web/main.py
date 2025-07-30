@@ -59,13 +59,18 @@ async def get_wishes():
 
     result = []
     for id_, photo_path, message in rows:
-        filename = os.path.basename(photo_path)
+        # вместо использования всего photo_path (который уже содержит 'uploads/'),
+        # берём только имя файла:
+        filename = os.path.basename(photo_path)      # '5430906.jpg'
+        # и добавляем правильный префикс:
+        url = f"/uploads/{filename}"                # '/uploads/5430906.jpg'
         result.append({
             "id": id_,
-            "photo_url": f"/uploads/{filename}",
+            "photo_url": url,
             "message": message
         })
     return JSONResponse(result)
+
 
 # 9. Главная страница с рендером шаблона
 @app.get("/", response_class=HTMLResponse)
