@@ -63,7 +63,7 @@ async def get_wishes():
         # берём только имя файла:
         filename = os.path.basename(photo_path)      # '5430906.jpg'
         # и добавляем правильный префикс:
-        url = f"/uploads/{filename}"                # '/uploads/5430906.jpg'
+        url = f"/{filename}"                # '/uploads/5430906.jpg'
         result.append({
             "id": id_,
             "photo_url": url,
