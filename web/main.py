@@ -1,7 +1,3 @@
-# website_app/main.py
-# Простой веб-сервер на FastAPI для отображения одобренных пожеланий
-# Требуется: fastapi, uvicorn, aiosqlite
-
 import os
 from dotenv import load_dotenv
 
@@ -21,7 +17,7 @@ load_dotenv()
 DB_PATH = os.getenv('DB_PATH', 'wishes.db')
 UPLOAD_DIR = os.getenv('UPLOAD_DIR', 'uploads')
 UPLOAD_DIR = os.getenv('UPLOAD_DIR', 'uploads')
-
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 app = FastAPI()
 
 # Подключаем статику для фото
