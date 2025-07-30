@@ -6,7 +6,6 @@ __pycache__/
 # Virtual environments
 venv/
 .env
-*.db
 uploads/*
 !uploads/.gitkeep
 
