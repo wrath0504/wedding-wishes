@@ -7,7 +7,8 @@ __pycache__/
 venv/
 .env
 *.db
-uploads/
+uploads/*
+!uploads/.gitkeep
 
 # Editor settings
 .vscode/
