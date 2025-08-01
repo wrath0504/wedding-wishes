@@ -38,7 +38,7 @@ async def on_startup():
     );
     """)
     await bot_init_db()
-    asyncio.create_task(dp.start_polling(bot))
+    asyncio.create_task(dp.start_polling(bot, skip_updates=True))
 
 @app.on_event("shutdown")
 async def on_shutdown():
