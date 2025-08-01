@@ -89,17 +89,18 @@ async def handle_photo(message: types.Message):
 
     await message.reply("Спасибо! Ваше пожелание отправлено на модерацию 🎉")
 
-    kb = types.InlineKeyboardMarkup(
+    keyboard = types.InlineKeyboardMarkup(
         inline_keyboard=[[
-            types.InlineKeyboardButton("✅ Одобрить", callback_data=f"approve:{wish_id}"),
-            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject:{wish_id}")
+            types.InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{wish_id}"),
+            types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{wish_id}")
         ]]
     )
+    
     await bot.send_photo(
         chat_id=ADMIN_CHAT_ID,
-        photo=FSInputFile(path),
+        photo=FSInputFile(photo_path),
         caption=f"Новое пожелание #{wish_id}:\n{caption}",
-        reply_markup=kb
+        reply_markup=keyboard
     )
 
 
