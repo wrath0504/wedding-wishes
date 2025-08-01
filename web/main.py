@@ -10,7 +10,7 @@ UPLOAD_DIR    = os.getenv("UPLOAD_DIR", str(project_root/"uploads"))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 sys.path.insert(0, str(project_root))
-from telegram_wedding_bot.main import bot, dp, init_db as bot_init_db
+from bot.main import bot, dp, init_db as bot_init_db
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
