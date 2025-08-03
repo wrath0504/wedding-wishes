@@ -1,107 +1,129 @@
 import os
-import io
 import logging
 import asyncio
-from datetime import datetime
-from aiogram import Bot, Dispatcher, types
-from sqlalchemy import Column, Integer, String, DateTime, Table, MetaData, LargeBinary, create_engine
+import io
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import FSInputFile
 from databases import Database
+from dotenv import load_dotenv
 
-# Configure logging
+load_dotenv()
+
+# Настройки
+TOKEN         = os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID") or 0)
+DATABASE_URL  = os.getenv("DATABASE_URL")
+
+# Логи
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# Environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Инициализируем бота и диспетчер
+bot = Bot(token=TOKEN)
+dp  = Dispatcher(bot)
+db  = Database(DATABASE_URL)
 
-# Initialize bot, dispatcher, and database
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-database = Database(DATABASE_URL)
-metadata = MetaData()
+async def init_db():
+    """Создаём таблицу wishes для хранения байтов фото."""
+    await db.connect()
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS wishes (
+            id            SERIAL PRIMARY KEY,
+            image_data    BYTEA   NOT NULL,
+            message       TEXT    NOT NULL,
+            status        TEXT    NOT NULL DEFAULT 'pending',
+            timestamp     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            random_order  DOUBLE PRECISION DEFAULT RANDOM()
+        );
+    """)
 
-# Define wishes table matching database schema
-wishes = Table(
-    "wishes",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("message", String),
-    Column("status", String, default="pending"),
-    Column("timestamp", DateTime, default=datetime.utcnow),
-    Column("image_data", LargeBinary, nullable=False),
-)
-
-# Handler functions
-async def handle_photo(message: types.Message):
-    logger.info("Received photo from user_id=%s", message.from_user.id)
-    try:
-        buf = io.BytesIO()
-        await message.photo[-1].download(destination_file=buf)
-        data = buf.getvalue()
-        query = wishes.insert().values(
-            message=message.caption or "",
-            status="pending",
-            image_data=data,
-            timestamp=datetime.utcnow(),
-        )
-        wish_id = await database.execute(query)
-        logger.info("Saved wish_id=%s to database", wish_id)
-
-        keyboard = types.InlineKeyboardMarkup().add(
-            types.InlineKeyboardButton("✅ Одобрить", callback_data=f"approve:{wish_id}"),
-            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject:{wish_id}")
-        )
-        await bot.send_message(
-            ADMIN_CHAT_ID,
-            f"Новая запись №{wish_id}: {message.caption or '<без текста>'}",
-            reply_markup=keyboard
-        )
-        logger.info("Sent moderation request for wish_id=%s to admin", wish_id)
-    except Exception as e:
-        logger.error("Error processing photo: %s", e, exc_info=True)
-        await message.reply("Произошла ошибка при обработке вашего фото. Попробуйте ещё раз позже.")
-
-async def process_callback(callback_query: types.CallbackQuery):
-    action, wish_id = callback_query.data.split(":")
-    new_status = 'approved' if action == 'approve' else 'rejected'
-    await database.execute(
-        wishes.update().where(wishes.c.id == int(wish_id)).values(status=new_status)
+@dp.message(F.text & ~F.photo)
+async def handle_text_only(message: types.Message):
+    await message.reply(
+        "Пожелание принимается только вместе с фото и текстом. "
+        "Пожалуйста, отправьте фото вместе с подписью."
     )
-    await callback_query.answer(text=f"Статус изменён на {new_status}")
-    await bot.edit_message_reply_markup(
-        chat_id=callback_query.message.chat.id,
-        message_id=callback_query.message.message_id,
+
+@dp.message(Command("start"))
+@dp.message(Command("help"))
+async def cmd_start_help(message: types.Message):
+    await message.reply(
+        "Привет! Отправь мне фото с подписью-пожеланием, "
+        "и я передам его администратору на модерацию."
+    )
+
+@dp.message(F.photo)
+async def handle_photo(message: types.Message):
+    caption = message.caption or ""
+    if not caption:
+        return await message.reply("Пожалуйста, подпишите фото вашим пожеланием.")
+
+    try:
+        # Получаем файл и скачиваем в память
+        photo = message.photo[-1]
+        file_info = await bot.get_file(photo.file_id)
+        buf = io.BytesIO()
+        await bot.download_file(file_info.file_path, buf)
+        data = buf.getvalue()
+
+        # Сохраняем в БД
+        row_id = await db.execute(
+            """
+            INSERT INTO wishes (image_data, message)
+            VALUES (:data, :msg)
+            RETURNING id
+            """,
+            {"data": data, "msg": caption}
+        )
+    except Exception:
+        logging.exception("Ошибка при сохранении фото в БД")
+        return await message.reply("Не удалось сохранить фото. Попробуйте позже.")
+
+    await message.reply("Спасибо! Ваше пожелание отправлено на модерацию 🎉")
+
+    # Кнопки модерации
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[[
+            types.InlineKeyboardButton("✅ Одобрить", callback_data=f"approve:{row_id}"),
+            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject:{row_id}")
+        ]]
+    )
+
+    # Отправляем админу фото из памяти
+    ext = os.path.splitext(file_info.file_path)[1]
+    fsfile = FSInputFile(io.BytesIO(data), filename=f"{row_id}{ext}")
+    await bot.send_photo(
+        chat_id=ADMIN_CHAT_ID,
+        photo=fsfile,
+        caption=f"Новое пожелание #{row_id}:
+{caption}",
+        reply_markup=kb
+    )
+
+@dp.callback_query(F.data.startswith("approve:"))
+@dp.callback_query(F.data.startswith("reject:"))
+async def process_mod(call: types.CallbackQuery):
+    action, id_str = call.data.split(":", 1)
+    wish_id = int(id_str)
+    status  = "approved" if action == "approve" else "rejected"
+
+    await db.execute(
+        "UPDATE wishes SET status=:st WHERE id=:id",
+        {"st": status, "id": wish_id}
+    )
+
+    await call.message.edit_caption(
+        call.message.caption + f"
+
+Статус: {status}",
         reply_markup=None
     )
-    logger.info("Updated status for wish_id=%s to %s", wish_id, new_status)
-
-# Register handlers at import
-# Use simple filter: only messages with photos
-
-dp.message.register(handle_photo, lambda message: bool(message.photo))
-dp.callback_query.register(
-    process_callback,
-    lambda c: c.data and c.data.startswith(("approve:", "reject:"))
-)
-async def on_startup():
-    logger.info("Bot startup: connecting to database")
-    await database.connect()
-    engine = create_engine(DATABASE_URL)
-    metadata.create_all(engine)
-    logger.info("Database schema ensured for bot")
-
-async def on_shutdown():
-    logger.info("Bot shutdown: disconnecting database")
-    await database.disconnect()
+    await call.answer(f"Пожелание #{wish_id} {status}")
 
 async def main():
-    await on_startup()
-    try:
-        await dp.start_polling(bot, skip_updates=True)
-    finally:
-        await on_shutdown()
+    await init_db()
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(skip_updates=True)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())
