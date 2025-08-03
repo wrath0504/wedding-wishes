@@ -27,17 +27,18 @@
   </script>
 </head>
 <body class="bg-cream font-body text-sepia min-h-screen">
-  <div class="max-w-4xl mx-auto p-6">
+  <!-- Увеличили max-width и padding -->
+  <div class="max-w-7xl mx-auto p-12">
     <!-- Header -->
-    <header class="text-center mb-8">
-      <h1 class="text-5xl font-heading">Азат & Эльвина</h1>
-      <p class="mt-2 text-xl font-body text-lightSepia">Пожелания на свадьбу</p>
+    <header class="text-center mb-16">
+      <h1 class="text-6xl font-heading">Азат & Эльвина</h1>
+      <p class="mt-4 text-2xl font-body text-lightSepia">Пожелания на свадьбу</p>
     </header>
 
-    <!-- Wishes grid: 1 column on mobile, 2 on larger -->
+    <!-- Wishes grid: прежний grid, но с увеличенным gap -->
     <main>
-      <div id="wishes" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- JS will inject cards here -->
+      <div id="wishes" class="grid grid-cols-1 md:grid-cols-2 gap-12">
+        <!-- JS inject -->
       </div>
     </main>
   </div>
@@ -49,16 +50,16 @@
         const container = document.getElementById('wishes');
         data.forEach(w => {
           const card = document.createElement('div');
-          card.className = 'bg-white bg-opacity-80 rounded-lg p-4 border border-lightSepia flex flex-col';
+          // Удвоили padding, добавили border, увеличили текст
+          card.className = 'bg-white bg-opacity-80 rounded-lg p-8 border border-lightSepia flex flex-col';
           card.innerHTML = `
-            <div class="rounded-md bg-white p-2 flex justify-center">
-			  <img 
-				src="${w.photo_url}" 
-				alt="Фото пожелания" 
-				class="w-full h-auto object-contain max-h-64" 
-			  />
-			</div>
-            <p class="mt-3 flex-1 text-center text-base font-body break-words">${w.message}</p>
+            <div class="flex justify-center mb-6">
+              <!-- убрали max-h-64, поставили max-h-[512px] -->
+              <img src="${w.photo_url}"
+                   alt="Фото пожелания"
+                   class="w-full h-auto object-contain max-h-[512px]" />
+            </div>
+            <p class="mt-6 flex-1 text-center text-lg font-body break-words">${w.message}</p>
           `;
           container.appendChild(card);
         });
