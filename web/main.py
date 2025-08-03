@@ -1,19 +1,22 @@
 import os
 import io
 import logging
+import threading
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from sqlalchemy import Column, Integer, String, DateTime, Table, MetaData, LargeBinary, create_engine
 from databases import Database
+import bot.main as telegram_bot  # import dispatcher
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Environment variables
+# Environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# Initialize database metadata and engine
 database = Database(DATABASE_URL)
 metadata = MetaData()
 
@@ -22,9 +25,9 @@ wishes = Table(
     "wishes",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("message", String),                  # matches DB column
+    Column("message", String),
     Column("status", String, default="approved"),
-    Column("timestamp", DateTime, default=datetime.utcnow),  # matches DB column
+    Column("timestamp", DateTime, default=datetime.utcnow),
     Column("image_data", LargeBinary, nullable=False),
 )
 
@@ -38,6 +41,12 @@ app = FastAPI()
 async def startup():
     logger.info("API startup: connecting to database")
     await database.connect()
+    # Start Telegram bot polling in background thread
+    def start_bot():
+        from aiogram import executor
+        executor.start_polling(telegram_bot.dp, skip_updates=True)
+    threading.Thread(target=start_bot, daemon=True).start()
+    logger.info("Telegram bot polling started in background")
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -51,15 +60,15 @@ async def get_wishes():
               .where(wishes.c.status == "approved")
               .order_by(wishes.c.timestamp.desc())
     )
-    result = []
-    for r in rows:
-        result.append({
+    return [
+        {
             "id": r.id,
             "message": r.message,
             "image_url": f"/api/wishes/{r.id}/image",
             "timestamp": r.timestamp.isoformat(),
-        })
-    return result
+        }
+        for r in rows
+    ]
 
 @app.get("/api/wishes/{wish_id}/image")
 async def wish_image(wish_id: int):
