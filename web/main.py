@@ -52,13 +52,14 @@ async def get_wishes():
       "ORDER BY timestamp DESC, random_order"
     )
     out = []
-    for row in rows:
-        fname = os.path.basename(row["photo_path"])
-        out.append({
-          "id": row["id"],
-          "photo_url": f"/uploads/{fname}",
-          "message": row["message"]
-        })
+    for id_, photo_path, message in rows:
+    filename = os.path.basename(photo_path)
+    url = f"/uploads/{filename}"    
+    out.append({
+        "id": id_,
+        "photo_url": url,
+        "message": message
+    })
     return JSONResponse(out)
 
 @app.get("/", response_class=HTMLResponse)
