@@ -64,22 +64,27 @@ async def on_shutdown():
 
 @app.get("/api/wishes")
 async def get_wishes():
+    # Получаем все одобренные
     rows = await database.fetch_all(
-        "SELECT id, photo_path, message "
-        "FROM wishes WHERE status='approved' "
-        "ORDER BY timestamp DESC, random_order"
+        """
+        SELECT id, photo_path, message 
+        FROM wishes 
+        WHERE status = 'approved' 
+        ORDER BY timestamp DESC, random_order
+        """
     )
-    out = []
-    for id_, photo_path, message in rows:
-        # Правильные отступы внутри цикла
-        filename = os.path.basename(photo_path)
-        url = f"/uploads/{filename}"
-        out.append({
-            "id": id_,
-            "photo_url": url,
-            "message": message
+
+    result = []
+    for row in rows:
+        # row["photo_path"] — это полный путь на диске, например "/data/uploads/1691023456789.jpg"
+        filename = os.path.basename(row["photo_path"])  # "1691023456789.jpg"
+        result.append({
+            "id":        row["id"],
+            "photo_url": f"/uploads/{filename}",
+            "message":   row["message"]
         })
-    return JSONResponse(out)
+
+    return JSONResponse(result)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
