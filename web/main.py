@@ -48,6 +48,7 @@ async def startup():
     logger.info("API startup: connecting to database")
     await database.connect()
     await bot_startup()
+    # Launch bot polling
     asyncio.create_task(dp.start_polling(bot, skip_updates=True))
     logger.info("Telegram bot polling started in background")
 

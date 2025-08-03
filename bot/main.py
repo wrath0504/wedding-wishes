@@ -33,6 +33,7 @@ wishes = Table(
     Column("image_data", LargeBinary, nullable=False),
 )
 
+# Handler functions
 async def handle_photo(message: types.Message):
     logger.info("Received photo from user_id=%s", message.from_user.id)
     try:
@@ -76,6 +77,10 @@ async def process_callback(callback_query: types.CallbackQuery):
     )
     logger.info("Updated status for wish_id=%s to %s", wish_id, new_status)
 
+# Register handlers at import
+dp.message.register(handle_photo, content_types=[types.ContentType.PHOTO])
+dp.callback_query.register(process_callback, lambda c: c.data and c.data.startswith(("approve:", "reject:")))
+
 async def on_startup():
     logger.info("Bot startup: connecting to database")
     await database.connect()
@@ -88,16 +93,10 @@ async def on_shutdown():
     await database.disconnect()
 
 async def main():
-    # Initialize DB and tables
     await on_startup()
-    # Register handlers
-    dp.message.register(handle_photo, content_types=[types.ContentType.PHOTO])
-    dp.callback_query.register(process_callback, lambda c: c.data and c.data.startswith(("approve:", "reject:")))
     try:
-        # Start polling
         await dp.start_polling(bot, skip_updates=True)
     finally:
-        # Cleanup
         await on_shutdown()
 
 if __name__ == '__main__':
