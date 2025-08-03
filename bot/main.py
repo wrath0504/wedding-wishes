@@ -18,7 +18,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Initialize bot, dispatcher, and database
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot)
 database = Database(DATABASE_URL)
 metadata = MetaData()
 
@@ -27,13 +27,12 @@ wishes = Table(
     "wishes",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("message", String),                  # DB column
+    Column("message", String),
     Column("status", String, default="pending"),
-    Column("timestamp", DateTime, default=datetime.utcnow),  # DB column
+    Column("timestamp", DateTime, default=datetime.utcnow),
     Column("image_data", LargeBinary, nullable=False),
 )
 
-@dp.message.register(content_types=[types.ContentType.PHOTO])
 async def handle_photo(message: types.Message):
     logger.info("Received photo from user_id=%s", message.from_user.id)
     try:
@@ -63,7 +62,6 @@ async def handle_photo(message: types.Message):
         logger.error("Error processing photo: %s", e, exc_info=True)
         await message.reply("Произошла ошибка при обработке вашего фото. Попробуйте ещё раз позже.")
 
-@dp.callback_query.register(lambda c: c.data and c.data.startswith(("approve:", "reject:")))
 async def process_callback(callback_query: types.CallbackQuery):
     action, wish_id = callback_query.data.split(":")
     new_status = 'approved' if action == 'approve' else 'rejected'
@@ -90,10 +88,16 @@ async def on_shutdown():
     await database.disconnect()
 
 async def main():
+    # Initialize DB and tables
     await on_startup()
+    # Register handlers
+    dp.message.register(handle_photo, content_types=[types.ContentType.PHOTO])
+    dp.callback_query.register(process_callback, lambda c: c.data and c.data.startswith(("approve:", "reject:")))
     try:
+        # Start polling
         await dp.start_polling(bot, skip_updates=True)
     finally:
+        # Cleanup
         await on_shutdown()
 
 if __name__ == '__main__':
