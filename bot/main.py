@@ -18,7 +18,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Initialize bot, dispatcher, and database
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 database = Database(DATABASE_URL)
 metadata = MetaData()
 
