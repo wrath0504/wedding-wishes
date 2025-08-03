@@ -1,29 +1,34 @@
 import os
 import io
+import logging
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from sqlalchemy import Column, Integer, String, DateTime, Table, MetaData, LargeBinary, create_engine
 from databases import Database
-from datetime import datetime
 
-# Environment variable
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 database = Database(DATABASE_URL)
 metadata = MetaData()
 
-# Define wishes table with image_data
+# Define wishes table matching database schema
 wishes = Table(
     "wishes",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("text", String),
+    Column("message", String),                  # matches DB column
     Column("status", String, default="approved"),
+    Column("timestamp", DateTime, default=datetime.utcnow),  # matches DB column
     Column("image_data", LargeBinary, nullable=False),
-    Column("created_at", DateTime, default=datetime.utcnow),
 )
 
-# Create table if not exists
+# Ensure table exists
 engine = create_engine(DATABASE_URL)
 metadata.create_all(engine)
 
@@ -31,24 +36,28 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup():
+    logger.info("API startup: connecting to database")
     await database.connect()
 
 @app.on_event("shutdown")
 async def shutdown():
+    logger.info("API shutdown: disconnecting database")
     await database.disconnect()
 
 @app.get("/api/wishes")
 async def get_wishes():
     rows = await database.fetch_all(
-        wishes.select().where(wishes.c.status == "approved").order_by(wishes.c.created_at.desc())
+        wishes.select()
+              .where(wishes.c.status == "approved")
+              .order_by(wishes.c.timestamp.desc())
     )
     result = []
     for r in rows:
         result.append({
             "id": r.id,
-            "text": r.text,
+            "message": r.message,
             "image_url": f"/api/wishes/{r.id}/image",
-            "created_at": r.created_at.isoformat(),
+            "timestamp": r.timestamp.isoformat(),
         })
     return result
 
@@ -61,6 +70,10 @@ async def wish_image(wish_id: int):
 
 @app.get("/")
 async def read_index():
-    with open("templates/index.html", "r", encoding="utf-8") as f:
-        html = f.read()
+    try:
+        with open("templates/index.html", "r", encoding="utf-8") as f:
+            html = f.read()
+    except FileNotFoundError:
+        logger.error("index.html not found in templates folder")
+        raise HTTPException(status_code=500, detail="Template not found")
     return HTMLResponse(html)
