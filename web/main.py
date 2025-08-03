@@ -13,7 +13,7 @@ from databases import Database
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
-# Import bot and dispatcher
+# Import bot and dispatcher startup/shutdown
 from bot.main import bot, dp, on_startup as bot_startup, on_shutdown as bot_shutdown
 
 # Configure logging
@@ -48,7 +48,6 @@ async def startup():
     logger.info("API startup: connecting to database")
     await database.connect()
     await bot_startup()
-    # Launch bot polling
     asyncio.create_task(dp.start_polling(bot, skip_updates=True))
     logger.info("Telegram bot polling started in background")
 

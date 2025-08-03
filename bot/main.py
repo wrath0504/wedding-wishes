@@ -33,7 +33,7 @@ wishes = Table(
     Column("image_data", LargeBinary, nullable=False),
 )
 
-@dp.message(types.ContentType.PHOTO)
+@dp.message.register(content_types=[types.ContentType.PHOTO])
 async def handle_photo(message: types.Message):
     logger.info("Received photo from user_id=%s", message.from_user.id)
     try:
@@ -48,6 +48,7 @@ async def handle_photo(message: types.Message):
         )
         wish_id = await database.execute(query)
         logger.info("Saved wish_id=%s to database", wish_id)
+
         keyboard = types.InlineKeyboardMarkup().add(
             types.InlineKeyboardButton("✅ Одобрить", callback_data=f"approve:{wish_id}"),
             types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject:{wish_id}")
@@ -62,7 +63,7 @@ async def handle_photo(message: types.Message):
         logger.error("Error processing photo: %s", e, exc_info=True)
         await message.reply("Произошла ошибка при обработке вашего фото. Попробуйте ещё раз позже.")
 
-@dp.callback_query(lambda c: c.data and c.data.startswith(("approve:", "reject:")))
+@dp.callback_query.register(lambda c: c.data and c.data.startswith(("approve:", "reject:")))
 async def process_callback(callback_query: types.CallbackQuery):
     action, wish_id = callback_query.data.split(":")
     new_status = 'approved' if action == 'approve' else 'rejected'
@@ -89,7 +90,6 @@ async def on_shutdown():
     await database.disconnect()
 
 async def main():
-    # Register startup and shutdown tasks
     await on_startup()
     try:
         await dp.start_polling(bot, skip_updates=True)
