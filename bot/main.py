@@ -83,7 +83,7 @@ from aiogram.filters import ContentTypeFilter
 dp.message.register(handle_photo, ContentTypeFilter(content_types=[types.ContentType.PHOTO]))
 dp.callback_query.register(process_callback, lambda c: c.data and c.data.startswith(("approve:", "reject:")))
 
-async def on_startup()():
+async def on_startup():
     logger.info("Bot startup: connecting to database")
     await database.connect()
     engine = create_engine(DATABASE_URL)
