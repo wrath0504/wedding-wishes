@@ -81,8 +81,10 @@ async def process_callback(callback_query: types.CallbackQuery):
 # Use simple filter: only messages with photos
 
 dp.message.register(handle_photo, lambda message: bool(message.photo))
-dp.callback_query.register(process_callback, lambda c: c.data and c.data.startswith(("approve:\", \"reject:\")))
-
+dp.callback_query.register(
+    process_callback,
+    lambda c: c.data and c.data.startswith(("approve:", "reject:"))
+)
 async def on_startup():
     logger.info("Bot startup: connecting to database")
     await database.connect()
