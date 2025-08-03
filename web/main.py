@@ -1,5 +1,6 @@
 import os
 import io
+import sys
 import logging
 import threading
 from datetime import datetime
@@ -7,7 +8,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from sqlalchemy import Column, Integer, String, DateTime, Table, MetaData, LargeBinary, create_engine
 from databases import Database
-import bot.main as telegram_bot  # import dispatcher
+
+# Extend Python path to import bot package
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
+
+# Now import telegram bot dispatcher
+from bot.main import dp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Initialize database metadata and engine
 database = Database(DATABASE_URL)
 metadata = MetaData()
 
@@ -44,7 +50,7 @@ async def startup():
     # Start Telegram bot polling in background thread
     def start_bot():
         from aiogram import executor
-        executor.start_polling(telegram_bot.dp, skip_updates=True)
+        executor.start_polling(dp, skip_updates=True)
     threading.Thread(target=start_bot, daemon=True).start()
     logger.info("Telegram bot polling started in background")
 

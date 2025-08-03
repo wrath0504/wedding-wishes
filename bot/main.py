@@ -27,9 +27,9 @@ wishes = Table(
     "wishes",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("message", String),                  # renamed from text
+    Column("message", String),                  # DB column
     Column("status", String, default="pending"),
-    Column("timestamp", DateTime, default=datetime.utcnow),  # renamed from created_at
+    Column("timestamp", DateTime, default=datetime.utcnow),  # DB column
     Column("image_data", LargeBinary, nullable=False),
 )
 
@@ -37,12 +37,9 @@ wishes = Table(
 async def handle_photo(message: types.Message):
     logger.info("Received photo from user_id=%s", message.from_user.id)
     try:
-        # Download photo into memory buffer
         buf = io.BytesIO()
         await message.photo[-1].download(destination_file=buf)
         data = buf.getvalue()
-
-        # Insert into database
         query = wishes.insert().values(
             message=message.caption or "",
             status="pending",
@@ -51,8 +48,6 @@ async def handle_photo(message: types.Message):
         )
         wish_id = await database.execute(query)
         logger.info("Saved wish_id=%s to database", wish_id)
-
-        # Send moderation request to admin
         keyboard = types.InlineKeyboardMarkup().add(
             types.InlineKeyboardButton("✅ Одобрить", callback_data=f"approve:{wish_id}"),
             types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject:{wish_id}")
@@ -63,7 +58,6 @@ async def handle_photo(message: types.Message):
             reply_markup=keyboard
         )
         logger.info("Sent moderation request for wish_id=%s to admin", wish_id)
-
     except Exception as e:
         logger.error("Error processing photo: %s", e, exc_info=True)
         await message.reply("Произошла ошибка при обработке вашего фото. Попробуйте ещё раз позже.")
@@ -88,7 +82,7 @@ async def on_startup():
     logger.info("Bot startup: connecting to database")
     await database.connect()
     engine = create_engine(DATABASE_URL)
-    metadata.create_all(engine)  # ensures table exists
+    metadata.create_all(engine)
     logger.info("Database schema ensured for bot")
 
 @dp.on_shutdown
