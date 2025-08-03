@@ -78,10 +78,12 @@ async def process_callback(callback_query: types.CallbackQuery):
     logger.info("Updated status for wish_id=%s to %s", wish_id, new_status)
 
 # Register handlers at import
-dp.message.register(handle_photo, content_types=[types.ContentType.PHOTO])
+from aiogram.filters import ContentTypeFilter
+
+dp.message.register(handle_photo, ContentTypeFilter(content_types=[types.ContentType.PHOTO]))
 dp.callback_query.register(process_callback, lambda c: c.data and c.data.startswith(("approve:", "reject:")))
 
-async def on_startup():
+async def on_startup()():
     logger.info("Bot startup: connecting to database")
     await database.connect()
     engine = create_engine(DATABASE_URL)
