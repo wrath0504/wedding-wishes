@@ -2,7 +2,7 @@ import os
 import io
 import sys
 import logging
-import threading
+import asyncio
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -13,8 +13,8 @@ from databases import Database
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
-# Now import telegram bot dispatcher
-from bot.main import dp
+# Import bot and dispatcher
+from bot.main import bot, dp, on_startup as bot_startup, on_shutdown as bot_shutdown
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -47,17 +47,16 @@ app = FastAPI()
 async def startup():
     logger.info("API startup: connecting to database")
     await database.connect()
-    # Start Telegram bot polling in background thread
-    def start_bot():
-        from aiogram import executor
-        executor.start_polling(dp, skip_updates=True)
-    threading.Thread(target=start_bot, daemon=True).start()
+    await bot_startup()
+    # Launch bot polling
+    asyncio.create_task(dp.start_polling(bot, skip_updates=True))
     logger.info("Telegram bot polling started in background")
 
 @app.on_event("shutdown")
 async def shutdown():
-    logger.info("API shutdown: disconnecting database")
+    logger.info("API shutdown: disconnecting database and bot")
     await database.disconnect()
+    await bot_shutdown()
 
 @app.get("/api/wishes")
 async def get_wishes():

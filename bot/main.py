@@ -1,9 +1,9 @@
 import os
 import io
 import logging
+import asyncio
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
 from sqlalchemy import Column, Integer, String, DateTime, Table, MetaData, LargeBinary, create_engine
 from databases import Database
 
@@ -18,7 +18,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Initialize bot, dispatcher, and database
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 database = Database(DATABASE_URL)
 metadata = MetaData()
 
@@ -33,7 +33,7 @@ wishes = Table(
     Column("image_data", LargeBinary, nullable=False),
 )
 
-@dp.message_handler(content_types=types.ContentType.PHOTO)
+@dp.message(types.ContentType.PHOTO)
 async def handle_photo(message: types.Message):
     logger.info("Received photo from user_id=%s", message.from_user.id)
     try:
@@ -62,22 +62,21 @@ async def handle_photo(message: types.Message):
         logger.error("Error processing photo: %s", e, exc_info=True)
         await message.reply("Произошла ошибка при обработке вашего фото. Попробуйте ещё раз позже.")
 
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith(("approve:", "reject:")))
+@dp.callback_query(lambda c: c.data and c.data.startswith(("approve:", "reject:")))
 async def process_callback(callback_query: types.CallbackQuery):
     action, wish_id = callback_query.data.split(":")
     new_status = 'approved' if action == 'approve' else 'rejected'
     await database.execute(
         wishes.update().where(wishes.c.id == int(wish_id)).values(status=new_status)
     )
-    await bot.answer_callback_query(callback_query.id, text=f"Статус изменён на {new_status}")
+    await callback_query.answer(text=f"Статус изменён на {new_status}")
     await bot.edit_message_reply_markup(
-        ADMIN_CHAT_ID,
-        callback_query.message.message_id,
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
         reply_markup=None
     )
     logger.info("Updated status for wish_id=%s to %s", wish_id, new_status)
 
-@dp.on_startup
 async def on_startup():
     logger.info("Bot startup: connecting to database")
     await database.connect()
@@ -85,10 +84,17 @@ async def on_startup():
     metadata.create_all(engine)
     logger.info("Database schema ensured for bot")
 
-@dp.on_shutdown
 async def on_shutdown():
     logger.info("Bot shutdown: disconnecting database")
     await database.disconnect()
 
+async def main():
+    # Register startup and shutdown tasks
+    await on_startup()
+    try:
+        await dp.start_polling(bot, skip_updates=True)
+    finally:
+        await on_shutdown()
+
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
