@@ -31,13 +31,14 @@ async def init_db():
     await db.connect()
     await db.execute("""
         CREATE TABLE IF NOT EXISTS wishes (
-            id           SERIAL PRIMARY KEY,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
             photo_path   TEXT   NOT NULL,
             message      TEXT   NOT NULL,
             status       TEXT   NOT NULL DEFAULT 'pending',
-            timestamp    TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            random_order DOUBLE PRECISION DEFAULT RANDOM()
+            timestamp    TEXT DEFAULT CURRENT_TIMESTAMP,
+            random_order REAL DEFAULT (abs(random()) / 9223372036854775807.0)
         );
+
     """)
 
 async def save_photo_local(file: types.File) -> str:

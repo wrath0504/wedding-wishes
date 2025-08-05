@@ -45,13 +45,14 @@ async def on_startup():
     await database.connect()
     await database.execute("""
         CREATE TABLE IF NOT EXISTS wishes (
-            id            SERIAL PRIMARY KEY,
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
             photo_path    TEXT NOT NULL,
             message       TEXT NOT NULL,
             status        TEXT NOT NULL DEFAULT 'approved',
-            timestamp     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            random_order  DOUBLE PRECISION DEFAULT RANDOM()
+            timestamp     TEXT DEFAULT CURRENT_TIMESTAMP,
+            random_order  REAL DEFAULT (abs(random()) / 9223372036854775807.0)
         );
+
     """)
     # Инициализация бота (создание SQLite-таблицы, если нужно)
     await bot_init_db()
