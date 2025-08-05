@@ -72,6 +72,7 @@ async def get_wishes():
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
     
-@app.api_route("/health", methods=["GET", "HEAD"])
-async def health(request: Request):
-    return JSONResponse({"status": "ok"})
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
