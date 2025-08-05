@@ -4,69 +4,87 @@ import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Делаем пакет bot доступным для импорта
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
+# Загрузка .env из web/.env
 load_dotenv(project_root / "web" / ".env")
 
-DB_PATH    = os.getenv("DB_PATH", str(project_root / "wishes.db"))
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(project_root / "uploads"))
+# Настройки
+DATABASE_URL = os.getenv("DATABASE_URL")
+UPLOAD_DIR   = os.getenv("UPLOAD_DIR", str(project_root / "uploads"))
 
+# Создаём папку uploads, если её нет
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Импорт бота
 from bot.main import bot, dp, init_db as bot_init_db
 
+# FastAPI и Web
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, HTMLResponse
-import aiosqlite
+from databases import Database
 
 app = FastAPI()
 
+# Монтируем статику
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# Jinja2-шаблоны
 templates = Jinja2Templates(directory=str(project_root / "web" / "templates"))
+
+# Подключение к базе
+database = Database(DATABASE_URL)
 
 @app.on_event("startup")
 async def on_startup():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS wishes (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                photo_path    TEXT    NOT NULL,
-                message       TEXT    NOT NULL,
-                status        TEXT    NOT NULL DEFAULT 'approved',
-                timestamp     DATETIME DEFAULT CURRENT_TIMESTAMP,
-                random_order  REAL    DEFAULT (RANDOM())
-            );
-        """)
-        await db.commit()
-
+    # Подключаемся к базе Postgres и создаём таблицу
+    await database.connect()
+    await database.execute("""
+        CREATE TABLE IF NOT EXISTS wishes (
+            id            SERIAL PRIMARY KEY,
+            photo_path    TEXT NOT NULL,
+            message       TEXT NOT NULL,
+            status        TEXT NOT NULL DEFAULT 'approved',
+            timestamp     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            random_order  DOUBLE PRECISION DEFAULT RANDOM()
+        );
+    """)
+    # Инициализация бота (создание SQLite-таблицы, если нужно)
     await bot_init_db()
+    # Запуск polling в фоне (игнорируем старые апдейты)
+    asyncio.create_task(dp.start_polling(bot, skip_updates=True))
 
-    asyncio.create_task(dp.start_polling(bot))
+@app.on_event("shutdown")
+async def on_shutdown():
+    await database.disconnect()
 
 @app.get("/api/wishes")
 async def get_wishes():
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "SELECT id, photo_path, message "
-            "FROM wishes "
-            "WHERE status = 'approved' "
-            "ORDER BY timestamp DESC, random_order"
-        )
-        rows = await cursor.fetchall()
+    # Получаем все одобренные
+    rows = await database.fetch_all(
+        """
+        SELECT id, photo_path, message 
+        FROM wishes 
+        WHERE status = 'approved' 
+        ORDER BY timestamp DESC, random_order
+        """
+    )
 
-    out = []
-    for id_, photo_path, message in rows:
-        fname = os.path.basename(photo_path)
-        out.append({
-            "id": id_,
-            "photo_url": f"/uploads/{fname}",
-            "message": message
+    result = []
+    for row in rows:
+        # row["photo_path"] — это полный путь на диске, например "/data/uploads/1691023456789.jpg"
+        filename = os.path.basename(row["photo_path"])  # "1691023456789.jpg"
+        result.append({
+            "id":        row["id"],
+            "photo_url": f"/uploads/{filename}",
+            "message":   row["message"]
         })
-    return JSONResponse(out)
+
+    return JSONResponse(result)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -75,4 +93,5 @@ async def index(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
 
