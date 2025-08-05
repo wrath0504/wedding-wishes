@@ -1,93 +1,91 @@
 import os
-import io
 import sys
-import logging
 import asyncio
-from datetime import datetime
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, HTMLResponse
-from sqlalchemy import Column, Integer, String, DateTime, Table, MetaData, LargeBinary, create_engine
-from databases import Database
+from pathlib import Path
+from dotenv import load_dotenv
 
-# Extend Python path to import bot package
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(BASE_DIR)
+# Делаем пакет bot доступным для импорта
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
 
-# Import bot and dispatcher startup/shutdown
-from bot.main import bot, dp, on_startup as bot_startup, on_shutdown as bot_shutdown
+# Загрузка .env из web/.env
+load_dotenv(project_root / "web" / ".env")
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Environment variable
+# Настройки
 DATABASE_URL = os.getenv("DATABASE_URL")
+UPLOAD_DIR   = os.getenv("UPLOAD_DIR", str(project_root / "uploads"))
 
-database = Database(DATABASE_URL)
-metadata = MetaData()
+# Создаём папку uploads, если её нет
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Define wishes table matching database schema
-wishes = Table(
-    "wishes",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("message", String),
-    Column("status", String, default="approved"),
-    Column("timestamp", DateTime, default=datetime.utcnow),
-    Column("image_data", LargeBinary, nullable=False),
-)
+# Импорт бота
+from bot.main import bot, dp, init_db as bot_init_db
 
-# Ensure table exists
-engine = create_engine(DATABASE_URL)
-metadata.create_all(engine)
+# FastAPI и Web
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, HTMLResponse
+from databases import Database
 
 app = FastAPI()
 
+# Монтируем статику
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+# Jinja2-шаблоны
+templates = Jinja2Templates(directory=str(project_root / "web" / "templates"))
+
+# Подключение к базе
+database = Database(DATABASE_URL)
+
 @app.on_event("startup")
-async def startup():
-    logger.info("API startup: connecting to database")
+async def on_startup():
+    # Подключаемся к базе Postgres и создаём таблицу
     await database.connect()
-    await bot_startup()
-    # Launch bot polling
+    await database.execute("""
+        CREATE TABLE IF NOT EXISTS wishes (
+            id            SERIAL PRIMARY KEY,
+            photo_path    TEXT NOT NULL,
+            message       TEXT NOT NULL,
+            status        TEXT NOT NULL DEFAULT 'approved',
+            timestamp     TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            random_order  DOUBLE PRECISION DEFAULT RANDOM()
+        );
+    """)
+    # Инициализация бота (создание SQLite-таблицы, если нужно)
+    await bot_init_db()
+    # Запуск polling в фоне (игнорируем старые апдейты)
     asyncio.create_task(dp.start_polling(bot, skip_updates=True))
-    logger.info("Telegram bot polling started in background")
 
 @app.on_event("shutdown")
-async def shutdown():
-    logger.info("API shutdown: disconnecting database and bot")
+async def on_shutdown():
     await database.disconnect()
-    await bot_shutdown()
 
 @app.get("/api/wishes")
 async def get_wishes():
+    # Получаем все одобренные
     rows = await database.fetch_all(
-        wishes.select()
-              .where(wishes.c.status == "approved")
-              .order_by(wishes.c.timestamp.desc())
+        """
+        SELECT id, photo_path, message 
+        FROM wishes 
+        WHERE status = 'approved' 
+        ORDER BY timestamp DESC, random_order
+        """
     )
-    return [
-        {
-            "id": r.id,
-            "message": r.message,
-            "image_url": f"/api/wishes/{r.id}/image",
-            "timestamp": r.timestamp.isoformat(),
-        }
-        for r in rows
-    ]
 
-@app.get("/api/wishes/{wish_id}/image")
-async def wish_image(wish_id: int):
-    r = await database.fetch_one(wishes.select().where(wishes.c.id == wish_id))
-    if not r:
-        raise HTTPException(status_code=404, detail="Wish not found")
-    return StreamingResponse(io.BytesIO(r.image_data), media_type="image/jpeg")
+    result = []
+    for row in rows:
+        # row["photo_path"] — это полный путь на диске, например "/data/uploads/1691023456789.jpg"
+        filename = os.path.basename(row["photo_path"])  # "1691023456789.jpg"
+        result.append({
+            "id":        row["id"],
+            "photo_url": f"/uploads/{filename}",
+            "message":   row["message"]
+        })
 
-@app.get("/")
-async def read_index():
-    try:
-        with open("templates/index.html", "r", encoding="utf-8") as f:
-            html = f.read()
-    except FileNotFoundError:
-        logger.error("index.html not found in templates folder")
-        raise HTTPException(status_code=500, detail="Template not found")
-    return HTMLResponse(html)
+    return JSONResponse(result)
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
