@@ -3,7 +3,7 @@ import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from databases import Database
 from dotenv import load_dotenv
 
@@ -14,6 +14,7 @@ TOKEN         = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID") or 0)
 UPLOAD_DIR    = os.getenv("UPLOAD_DIR", "uploads")
 DATABASE_URL  = os.getenv("DATABASE_URL")
+SITE_URL      = os.getenv("SITE_URL", "https://your-site.onrender.com")
 
 # Логи
 logging.basicConfig(level=logging.INFO)
@@ -22,11 +23,10 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp  = Dispatcher()
 
-# Инициализируем объект для работы с Postgres
+# Инициализируем базу
 db = Database(DATABASE_URL)
 
 async def init_db():
-    """Создаём папку uploads и таблицу wishes, если они ещё не созданы."""
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     await db.connect()
     await db.execute("""
@@ -38,7 +38,6 @@ async def init_db():
             timestamp    TEXT DEFAULT CURRENT_TIMESTAMP,
             random_order REAL DEFAULT (abs(random()) / 9223372036854775807.0)
         );
-
     """)
 
 async def save_photo_local(file: types.File) -> str:
@@ -58,20 +57,21 @@ async def handle_text_only(message: types.Message):
 @dp.message(Command("start"))
 @dp.message(Command("help"))
 async def cmd_start(message: types.Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Открыть сайт 💌", url=SITE_URL)
+    ]])
     await message.reply(
         "Привет! Отправь фото с подписью — я сохраню пожелание, "
-        "а после модерации оно появится на сайте! ❤️"
+        "а после модерации оно появится на сайте! ❤️",
+        reply_markup=kb
     )
 
 @dp.message(F.photo)
 async def handle_photo(message: types.Message):
     caption = (message.caption or "").strip()
     if not caption:
-        return await message.reply(
-            "Пожалуйста, подпишите фото вашим пожеланием."
-        )
+        return await message.reply("Пожалуйста, подпишите фото вашим пожеланием.")
 
-    # Сохраняем файл локально
     photo = message.photo[-1]
     info  = await bot.get_file(photo.file_id)
     try:
@@ -80,7 +80,6 @@ async def handle_photo(message: types.Message):
         logging.exception("Ошибка сохранения фото")
         return await message.reply("Не удалось сохранить фото. Попробуйте позже.")
 
-    # Вставляем запись в Postgres и получаем ID
     row_id = await db.execute(
         """
         INSERT INTO wishes (photo_path, message)
@@ -94,24 +93,19 @@ async def handle_photo(message: types.Message):
 
     # Кнопки модерации
     kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[
-            types.InlineKeyboardButton(
-                text="✅ Одобрить", 
-                callback_data=f"approve:{row_id}"
-            ),
-            types.InlineKeyboardButton(
-                text="❌ Отклонить", 
-                callback_data=f"reject:{row_id}"
-            )
+        inline_keyboard=[[ 
+            types.InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{row_id}"),
+            types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{row_id}")
         ]]
     )
 
-    # Отправляем админу
+    # Отправляем админу с reply на исходное сообщение
     await bot.send_photo(
         chat_id=ADMIN_CHAT_ID,
         photo=FSInputFile(path),
         caption=f"Новое пожелание #{row_id}:\n{caption}",
-        reply_markup=kb
+        reply_markup=kb,
+        reply_to_message_id=message.message_id
     )
 
 @dp.callback_query(F.data.startswith("approve:"))
@@ -119,7 +113,7 @@ async def handle_photo(message: types.Message):
 async def process_mod(call: types.CallbackQuery):
     action, id_str = call.data.split(":", 1)
     wish_id = int(id_str)
-    status  = "approved" if action=="approve" else "rejected"
+    status  = "approved" if action == "approve" else "rejected"
 
     await db.execute(
         "UPDATE wishes SET status=:st WHERE id=:id",
@@ -132,11 +126,24 @@ async def process_mod(call: types.CallbackQuery):
     )
     await call.answer(f"Пожелание #{wish_id} {status}")
 
+    # Уведомление пользователю, если это было reply на его сообщение
+    if status == "approved" and call.message.reply_to_message:
+        user_id = call.message.reply_to_message.from_user.id
+        try:
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Открыть сайт 💌", url=SITE_URL)
+            ]])
+            await bot.send_message(
+                chat_id=user_id,
+                text="🎉 Ваше пожелание было одобрено и появилось на сайте!",
+                reply_markup=kb
+            )
+        except Exception as e:
+            logging.warning(f"Не удалось уведомить пользователя {user_id}: {e}")
+
 async def main():
     await init_db()
-    # Удаляем старые update, чтобы не было конфликта
     await bot.delete_webhook()
-    # Запускаем polling, пропуская старые
     await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
