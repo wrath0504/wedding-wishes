@@ -1,5 +1,7 @@
 fastapi
 uvicorn
-databases
-python-dotenv
+databases[sqlite]
+asyncpg
+aiogram
 jinja2
+python-dotenv
