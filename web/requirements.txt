@@ -5,3 +5,4 @@ databases
 psycopg2-binary>=2.9
 aiogram
 asyncpg
+python-dotenv
