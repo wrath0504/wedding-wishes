@@ -6,6 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from databases import Database
 from dotenv import load_dotenv
+import traceback
 
 load_dotenv()
 
@@ -81,24 +82,29 @@ async def handle_photo(message: types.Message):
         logging.exception("Ошибка сохранения фото")
         return await message.reply("Не удалось сохранить фото. Попробуйте позже.")
 
-    row_id = await db.execute(
-        """
-        INSERT INTO wishes (photo_path, message, user_id)
-        VALUES (:path, :msg, :user_id)
-        RETURNING id
-        """,
-        {"path": path, "msg": caption, "user_id": message.from_user.id}
-    )
+    logging.info(f"Сохраняем пожелание: '{caption}', user_id={message.from_user.id}")
+    try:
+        row_id = await db.execute(
+            """
+            INSERT INTO wishes (photo_path, message, user_id)
+            VALUES (:path, :msg, :user_id)
+            RETURNING id
+            """,
+            {"path": path, "msg": caption, "user_id": message.from_user.id}
+        )
+        logging.info(f"✅ Пожелание сохранено с ID: {row_id}")
+    except Exception as e:
+        logging.error(f"❌ Ошибка при сохранении пожелания: {e}")
+        logging.error(traceback.format_exc())
+        return await message.reply("Произошла ошибка при сохранении пожелания.")
 
     await message.reply("Спасибо! Ваше пожелание отправлено на модерацию 🎉")
 
     # Кнопки модерации
-    kb = types.InlineKeyboardMarkup(
-        inline_keyboard=[[ 
-            types.InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{row_id}"),
-            types.InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{row_id}")
-        ]]
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[ 
+        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{row_id}"),
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{row_id}")
+    ]])
 
     try:
         await bot.send_photo(
@@ -130,10 +136,10 @@ async def process_mod(call: types.CallbackQuery):
 
     # Получаем user_id из БД и уведомляем
     if status == "approved":
-        row = await db.fetch_one("SELECT user_id FROM wishes WHERE id = :id", {"id": wish_id})
-        if row:
-            user_id = row["user_id"]
-            try:
+        try:
+            row = await db.fetch_one("SELECT user_id FROM wishes WHERE id = :id", {"id": wish_id})
+            if row:
+                user_id = row["user_id"]
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="Открыть сайт 💌", url=SITE_URL)
                 ]])
@@ -142,8 +148,9 @@ async def process_mod(call: types.CallbackQuery):
                     text="🎉 Ваше пожелание было одобрено и появилось на сайте!",
                     reply_markup=kb
                 )
-            except Exception as e:
-                logging.warning(f"Не удалось уведомить пользователя {user_id}: {e}")
+        except Exception as e:
+            logging.warning(f"Не удалось уведомить пользователя после одобрения: {e}")
+            logging.error(traceback.format_exc())
 
 async def main():
     await init_db()
