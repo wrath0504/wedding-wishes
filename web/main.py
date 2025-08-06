@@ -96,3 +96,7 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/debug/wishes")
+async def debug_wishes():
+    rows = await database.fetch_all("SELECT * FROM wishes")
+    return {"count": len(rows), "items": [dict(row) for row in rows]}
