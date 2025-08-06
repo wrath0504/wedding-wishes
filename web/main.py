@@ -100,3 +100,16 @@ async def health():
 async def debug_wishes():
     rows = await database.fetch_all("SELECT * FROM wishes")
     return {"count": len(rows), "items": [dict(row) for row in rows]}
+
+@app.get("/debug/fix-db")
+async def fix_db():
+    import sqlite3
+    try:
+        conn = sqlite3.connect("/opt/render/project/src/wishes.db")
+        cursor = conn.cursor()
+        cursor.execute("ALTER TABLE wishes ADD COLUMN user_id INTEGER DEFAULT 0")
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "message": "user_id добавлен"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
