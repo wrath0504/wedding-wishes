@@ -9,21 +9,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Настройки
 TOKEN         = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID") or 0)
 UPLOAD_DIR    = os.getenv("UPLOAD_DIR", "uploads")
 DATABASE_URL  = os.getenv("DATABASE_URL")
 SITE_URL      = os.getenv("SITE_URL", "https://your-site.onrender.com")
 
-# Логи
 logging.basicConfig(level=logging.INFO)
 
-# Инициализируем бота и диспетчер
 bot = Bot(token=TOKEN)
 dp  = Dispatcher()
 
-# Инициализируем базу
 db = Database(DATABASE_URL)
 
 async def init_db():
@@ -91,7 +87,6 @@ async def handle_photo(message: types.Message):
 
     await message.reply("Спасибо! Ваше пожелание отправлено на модерацию 🎉")
 
-    # Кнопки модерации
     kb = types.InlineKeyboardMarkup(
         inline_keyboard=[[ 
             types.InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{row_id}"),
@@ -99,14 +94,16 @@ async def handle_photo(message: types.Message):
         ]]
     )
 
-    # Отправляем админу с reply на исходное сообщение
-    await bot.send_photo(
-        chat_id=ADMIN_CHAT_ID,
-        photo=FSInputFile(path),
-        caption=f"Новое пожелание #{row_id}:\n{caption}",
-        reply_markup=kb,
-        reply_to_message_id=message.message_id
-    )
+    try:
+        await bot.send_photo(
+            chat_id=ADMIN_CHAT_ID,
+            photo=FSInputFile(path),
+            caption=f"Новое пожелание #{row_id}:\n{caption}",
+            reply_markup=kb
+        )
+    except Exception as e:
+        logging.error(f"Не удалось отправить пожелание админу: {e}")
+
 
 @dp.callback_query(F.data.startswith("approve:"))
 @dp.callback_query(F.data.startswith("reject:"))
