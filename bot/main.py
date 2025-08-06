@@ -9,17 +9,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Настройки
 TOKEN         = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID") or 0)
 UPLOAD_DIR    = os.getenv("UPLOAD_DIR", "uploads")
 DATABASE_URL  = os.getenv("DATABASE_URL")
 SITE_URL      = os.getenv("SITE_URL", "https://your-site.onrender.com")
 
+# Логи
 logging.basicConfig(level=logging.INFO)
 
+# Инициализируем бота и диспетчер
 bot = Bot(token=TOKEN)
 dp  = Dispatcher()
 
+# Инициализируем базу
 db = Database(DATABASE_URL)
 
 async def init_db():
@@ -30,6 +34,7 @@ async def init_db():
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             photo_path   TEXT   NOT NULL,
             message      TEXT   NOT NULL,
+            user_id      INTEGER NOT NULL,
             status       TEXT   NOT NULL DEFAULT 'pending',
             timestamp    TEXT DEFAULT CURRENT_TIMESTAMP,
             random_order REAL DEFAULT (abs(random()) / 9223372036854775807.0)
@@ -78,15 +83,16 @@ async def handle_photo(message: types.Message):
 
     row_id = await db.execute(
         """
-        INSERT INTO wishes (photo_path, message)
-        VALUES (:path, :msg)
+        INSERT INTO wishes (photo_path, message, user_id)
+        VALUES (:path, :msg, :user_id)
         RETURNING id
         """,
-        {"path": path, "msg": caption}
+        {"path": path, "msg": caption, "user_id": message.from_user.id}
     )
 
     await message.reply("Спасибо! Ваше пожелание отправлено на модерацию 🎉")
 
+    # Кнопки модерации
     kb = types.InlineKeyboardMarkup(
         inline_keyboard=[[ 
             types.InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{row_id}"),
@@ -103,7 +109,6 @@ async def handle_photo(message: types.Message):
         )
     except Exception as e:
         logging.error(f"Не удалось отправить пожелание админу: {e}")
-
 
 @dp.callback_query(F.data.startswith("approve:"))
 @dp.callback_query(F.data.startswith("reject:"))
@@ -123,20 +128,22 @@ async def process_mod(call: types.CallbackQuery):
     )
     await call.answer(f"Пожелание #{wish_id} {status}")
 
-    # Уведомление пользователю, если это было reply на его сообщение
-    if status == "approved" and call.message.reply_to_message:
-        user_id = call.message.reply_to_message.from_user.id
-        try:
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="Открыть сайт 💌", url=SITE_URL)
-            ]])
-            await bot.send_message(
-                chat_id=user_id,
-                text="🎉 Ваше пожелание было одобрено и появилось на сайте!",
-                reply_markup=kb
-            )
-        except Exception as e:
-            logging.warning(f"Не удалось уведомить пользователя {user_id}: {e}")
+    # Получаем user_id из БД и уведомляем
+    if status == "approved":
+        row = await db.fetch_one("SELECT user_id FROM wishes WHERE id = :id", {"id": wish_id})
+        if row:
+            user_id = row["user_id"]
+            try:
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="Открыть сайт 💌", url=SITE_URL)
+                ]])
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="🎉 Ваше пожелание было одобрено и появилось на сайте!",
+                    reply_markup=kb
+                )
+            except Exception as e:
+                logging.warning(f"Не удалось уведомить пользователя {user_id}: {e}")
 
 async def main():
     await init_db()
